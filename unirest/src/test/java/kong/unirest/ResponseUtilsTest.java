@@ -31,6 +31,9 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.io.InputStream;
+import java.io.InputStreamReader;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.Mockito.when;
 
@@ -73,5 +76,4 @@ public class ResponseUtilsTest {
         test.type = content;
         return test.getCharSet();
     }
-
 }

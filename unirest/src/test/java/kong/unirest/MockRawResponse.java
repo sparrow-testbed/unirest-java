@@ -33,11 +33,11 @@ class MockRawResponse extends RawResponseBase {
     public String type;
 
     MockRawResponse() {
-        super(null);
+        super(null, null);
     }
 
     MockRawResponse(Config config) {
-        super(config);
+        super(null, config);
     }
 
     @Override

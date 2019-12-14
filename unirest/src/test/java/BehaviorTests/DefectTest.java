@@ -25,9 +25,9 @@
 
 package BehaviorTests;
 
-import org.apache.http.impl.nio.client.CloseableHttpAsyncClient;
-import org.apache.http.nio.client.HttpAsyncClient;
 import kong.unirest.json.JSONObject;
+import org.apache.hc.client5.http.async.HttpAsyncClient;
+import org.apache.hc.client5.http.impl.async.CloseableHttpAsyncClient;
 import kong.unirest.Unirest;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;

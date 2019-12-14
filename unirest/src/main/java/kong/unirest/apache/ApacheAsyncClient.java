@@ -26,37 +26,37 @@
 package kong.unirest.apache;
 
 import kong.unirest.*;
-import org.apache.http.HttpHost;
-import org.apache.http.client.methods.HttpUriRequest;
-import org.apache.http.concurrent.FutureCallback;
-import org.apache.http.impl.nio.conn.PoolingNHttpClientConnectionManager;
-import org.apache.http.nio.client.HttpAsyncClient;
-import org.apache.http.nio.protocol.BasicAsyncRequestProducer;
-import org.apache.http.nio.protocol.BasicAsyncResponseConsumer;
+import org.apache.hc.client5.http.async.HttpAsyncClient;
+import org.apache.hc.client5.http.async.methods.SimpleHttpRequest;
+import org.apache.hc.client5.http.async.methods.SimpleHttpResponse;
+import org.apache.hc.client5.http.impl.async.CloseableHttpAsyncClient;
+import org.apache.hc.client5.http.impl.nio.PoolingAsyncClientConnectionManager;
+import org.apache.hc.core5.concurrent.FutureCallback;
+import org.apache.hc.core5.http.HttpHost;
+import org.apache.hc.core5.http.nio.AsyncPushConsumer;
+import org.apache.hc.core5.http.nio.AsyncRequestProducer;
+import org.apache.hc.core5.http.nio.AsyncResponseConsumer;
+import org.apache.hc.core5.http.nio.HandlerFactory;
+import org.apache.hc.core5.http.nio.support.BasicRequestProducer;
+import org.apache.hc.core5.http.protocol.HttpContext;
 
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Function;
 import java.util.stream.Stream;
 
-
 public class ApacheAsyncClient extends BaseApacheClient implements AsyncClient {
+
     private ApacheAsyncConfig apache;
+
 
     public ApacheAsyncClient(Config config) {
         this.apache = new ApacheAsyncConfig(config);
     }
 
-    public ApacheAsyncClient(HttpAsyncClient client, Config config) {
-        this.apache = new ApacheAsyncConfig(client, config);
-    }
 
-    @Deprecated
-    public ApacheAsyncClient(HttpAsyncClient client,
-                             Config config,
-                             PoolingNHttpClientConnectionManager manager,
-                             AsyncIdleConnectionMonitorThread monitor) {
-        this.apache = new ApacheAsyncConfig(client, config, manager, monitor);
+    public ApacheAsyncClient(CloseableHttpAsyncClient client, Config config) {
+        this.apache = new ApacheAsyncConfig(client, config);
     }
 
     @Override
@@ -71,26 +71,43 @@ public class ApacheAsyncClient extends BaseApacheClient implements AsyncClient {
             CompletableFuture<HttpResponse<T>> callback) {
 
         Objects.requireNonNull(callback);
-        apache.config.getUniInterceptor().onRequest(request, apache.config);
-        HttpUriRequest requestObj = new RequestPrep(request, apache.config, true).prepare(configFactory);
+
+
+        SimpleHttpRequest requestObj = new RequestPrep(request, apache.config, true).prepareSimple();
         HttpRequestSummary reqSum = request.toSummary();
+        HttpHost host = determineTarget(request, request.getHeaders());
         MetricContext metric = apache.config.getMetric().begin(reqSum);
-        HttpHost host = determineTarget(requestObj, request.getHeaders());
-        apache.client.execute(new BasicAsyncRequestProducer(host, requestObj), new BasicAsyncResponseConsumer(), new FutureCallback<org.apache.http.HttpResponse>() {
+        HttpContext context = configFactory.apply(apache.config, request);
+
+//        protected abstract <T> Future<T> doExecute(
+//        final HttpHost target,
+//        final AsyncRequestProducer requestProducer,
+//        final AsyncResponseConsumer<T> responseConsumer,
+//        final HandlerFactory<AsyncPushConsumer> pushHandlerFactory,
+//        final HttpContext context,
+//        final FutureCallback<T> callback);
+        apache.client.execute(host,
+                new UniRequestProducer(),
+                new UniResponseConsumer(),
+                new UniHandlerFactory(),
+                context,
+                new FutureCallback<SimpleHttpResponse>() {
             @Override
-            public void completed(org.apache.http.HttpResponse httpResponse) {
-                ApacheResponse t = new ApacheResponse(httpResponse, apache.config);
-                metric.complete(t.toSummary(), null);
+            public void completed(SimpleHttpResponse httpResponse) {
+                ApacheAsyncResponse t = new ApacheAsyncResponse(httpResponse, apache.config);
+                HttpResponseSummary rezSum = t.toSummary();
                 HttpResponse<T> response = transformBody(transformer, t);
+                metric.complete(rezSum, null);
                 apache.config.getUniInterceptor().onResponse(response, reqSum, apache.config);
-                callback.complete(response);
+                HttpResponse<T> value = transformBody(transformer, t);
+                callback.complete(value);
             }
 
             @Override
             public void failed(Exception e) {
                 metric.complete(null, e);
                 try {
-                    HttpResponse r = apache.config.getUniInterceptor().onFail(e, reqSum, apache.config);
+                    HttpResponse r = apache.config.getUniInterceptor().onFail(e, null, apache.config);
                     callback.complete(r);
                 } catch (Exception ee){
                     callback.completeExceptionally(e);
@@ -109,11 +126,6 @@ public class ApacheAsyncClient extends BaseApacheClient implements AsyncClient {
     }
 
     @Override
-    public boolean isRunning() {
-        return apache.isRunning();
-    }
-
-    @Override
     public HttpAsyncClient getClient() {
         return apache.getClient();
     }
@@ -123,15 +135,15 @@ public class ApacheAsyncClient extends BaseApacheClient implements AsyncClient {
         return apache.close();
     }
 
-    public static Builder builder(HttpAsyncClient client) {
+    public static Builder builder(CloseableHttpAsyncClient client) {
         return new Builder(client);
     }
 
     public static class Builder implements Function<Config, AsyncClient> {
-        private HttpAsyncClient asyncClient;
+        private CloseableHttpAsyncClient asyncClient;
         private RequestConfigFactory cf;
 
-        public Builder(HttpAsyncClient client) {
+        public Builder(CloseableHttpAsyncClient client) {
             this.asyncClient = client;
         }
 

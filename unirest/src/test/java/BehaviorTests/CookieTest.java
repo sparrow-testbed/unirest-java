@@ -26,16 +26,15 @@
 package BehaviorTests;
 
 import kong.unirest.Cookie;
-import kong.unirest.Cookies;
 import kong.unirest.HttpResponse;
 import kong.unirest.Unirest;
-import org.apache.http.client.config.CookieSpecs;
 import org.junit.jupiter.api.Test;
-import org.mockito.Mock;
+
 
 import java.util.Arrays;
 
 import static org.junit.jupiter.api.Assertions.*;
+
 
 public class CookieTest extends BddTest {
 
@@ -149,7 +148,7 @@ public class CookieTest extends BddTest {
 
     @Test
     public void canSetCookieSpec() {
-        Unirest.config().cookieSpec(CookieSpecs.IGNORE_COOKIES);
+        Unirest.config().cookieSpec("ignoreCookies");
 
         MockServer.expectCookie("JSESSIONID", "ABC123");
         Unirest.get(MockServer.GET).asEmpty();

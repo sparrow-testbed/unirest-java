@@ -26,11 +26,13 @@
 package kong.unirest.apache;
 
 import kong.unirest.Headers;
+import kong.unirest.HttpRequest;
 import kong.unirest.Proxy;
-import org.apache.http.HttpHost;
-import org.apache.http.client.CredentialsProvider;
-import org.apache.http.client.methods.HttpGet;
-import org.apache.http.client.methods.HttpUriRequest;
+import kong.unirest.Unirest;
+import org.apache.hc.client5.http.auth.CredentialsProvider;
+import org.apache.hc.client5.http.classic.methods.HttpGet;
+import org.apache.hc.client5.http.classic.methods.HttpUriRequest;
+import org.apache.hc.core5.http.HttpHost;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -44,19 +46,18 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 class BaseApacheClientTest {
 
     private BaseApacheClient client;
-    private HttpUriRequest request;
+    private HttpRequest request;
     private Headers headers;
 
     @BeforeEach
     void setUp() {
-        request = new HttpGet();
         headers = new Headers();
         client = new BaseApacheClient(){};
     }
 
     @Test
     void basicHost() {
-        request = new HttpGet(URI.create("http://zombo.com"));
+        request = getRequest("http://zombo.com");
         HttpHost host = client.determineTarget(request, headers);
         assertEquals("zombo.com", host.getHostName());
         assertNull(host.getAddress());
@@ -64,9 +65,13 @@ class BaseApacheClientTest {
         assertEquals("http", host.getSchemeName());
     }
 
+    private HttpRequest getRequest(String s) {
+        return Unirest.get(s);
+    }
+
     @Test
     void basicHost_withPort() {
-        request = new HttpGet(URI.create("http://zombo.com:8080"));
+        request = getRequest("http://zombo.com:8080");
         HttpHost host = client.determineTarget(request, headers);
         assertEquals("zombo.com", host.getHostName());
         assertNull(host.getAddress());
@@ -77,7 +82,7 @@ class BaseApacheClientTest {
     @Test
     void willIgnoreHostHeaderprovided_IfNotIPv4() {
         headers.add("Host","homestarrunner.com");
-        request = new HttpGet(URI.create("http://zombo.com"));
+        request = getRequest("http://zombo.com");
         HttpHost host = client.determineTarget(request, headers);
         assertEquals("zombo.com", host.getHostName());
     }
@@ -85,7 +90,7 @@ class BaseApacheClientTest {
     @Test
     void willUseHostHeaderprovided_IfNotIPv4() throws UnknownHostException {
         headers.add("Host","homestarrunner.com");
-        request = new HttpGet(URI.create("http://127.0.0.1"));
+        request = getRequest("http://127.0.0.1");
         HttpHost host = client.determineTarget(request, headers);
         assertEquals("homestarrunner.com", host.getHostName());
         assertEquals(InetAddress.getByName("127.0.0.1"), host.getAddress());
@@ -93,7 +98,7 @@ class BaseApacheClientTest {
 
     @Test
     void ifUrlIsRelativeThenReturnNull() {
-        request = new HttpGet(URI.create("/somewhere"));
+        request = getRequest("/somewhere");
         HttpHost host = client.determineTarget(request, headers);
         assertNull(host);
     }

@@ -25,10 +25,10 @@
 
 package kong.unirest.apache;
 
-import org.apache.http.impl.nio.client.CloseableHttpAsyncClient;
-import org.apache.http.impl.nio.client.HttpAsyncClientBuilder;
-import org.apache.http.nio.client.HttpAsyncClient;
 import org.junit.jupiter.api.Test;
+import org.apache.hc.client5.http.async.HttpAsyncClient;
+import org.apache.hc.client5.http.impl.async.CloseableHttpAsyncClient;
+import org.apache.hc.client5.http.impl.async.HttpAsyncClientBuilder;
 
 import static org.junit.jupiter.api.Assertions.*;
 

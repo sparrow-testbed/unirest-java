@@ -26,13 +26,16 @@
 package kong.unirest.apache;
 
 import kong.unirest.*;
-import org.apache.http.HttpHost;
-import org.apache.http.client.HttpClient;
-import org.apache.http.client.methods.HttpRequestBase;
-import org.apache.http.impl.client.CloseableHttpClient;
-import org.apache.http.impl.client.HttpClientBuilder;
-import org.apache.http.impl.client.HttpClients;
-import org.apache.http.impl.conn.PoolingHttpClientConnectionManager;
+import org.apache.hc.client5.http.classic.HttpClient;
+import org.apache.hc.client5.http.impl.classic.CloseableHttpClient;
+import org.apache.hc.client5.http.impl.classic.CloseableHttpResponse;
+import org.apache.hc.client5.http.impl.classic.HttpClientBuilder;
+import org.apache.hc.client5.http.impl.classic.HttpClients;
+import org.apache.hc.client5.http.impl.io.PoolingHttpClientConnectionManager;
+import org.apache.hc.core5.http.ClassicHttpRequest;
+import org.apache.hc.core5.http.HttpHost;
+import org.apache.hc.core5.http.protocol.HttpContext;
+import org.apache.hc.core5.util.TimeValue;
 
 import java.io.Closeable;
 import java.util.Objects;
@@ -42,7 +45,7 @@ import java.util.function.Function;
 import java.util.stream.Stream;
 
 public class ApacheClient extends BaseApacheClient implements Client {
-    private final HttpClient client;
+    private final CloseableHttpClient client;
     private final Config config;
     private final SecurityConfig security;
     private final PoolingHttpClientConnectionManager manager;
@@ -57,26 +60,27 @@ public class ApacheClient extends BaseApacheClient implements Client {
                 .setDefaultRequestConfig(RequestOptions.toRequestConfig(config))
                 .setDefaultCredentialsProvider(toApacheCreds(config.getProxy()))
                 .setConnectionManager(manager)
-                .evictIdleConnections(30, TimeUnit.SECONDS)
+                .evictIdleConnections(TimeValue.of(30, TimeUnit.SECONDS))
                 .useSystemProperties();
 
         setOptions(cb);
         client = cb.build();
     }
 
-    @Deprecated // Use the builder instead, also, the PoolingHttpClientConnectionManager and SyncIdleConnectionMonitorThread don't get used here anyway
-    public ApacheClient(HttpClient httpClient, Config config, PoolingHttpClientConnectionManager clientManager) {
-        this.client = httpClient;
-        this.security = new SecurityConfig(config);
-        this.config = config;
-        this.manager = clientManager;
-    }
 
-    public ApacheClient(HttpClient httpClient, Config config){
+    public ApacheClient(CloseableHttpClient httpClient, Config config){
         this.client = httpClient;
         this.config = config;
         this.security = new SecurityConfig(config);
         this.manager = null;
+    }
+
+    @Deprecated
+    public ApacheClient(CloseableHttpClient httpClient, Config config, PoolingHttpClientConnectionManager clientManager) {
+        this.client = httpClient;
+        this.security = new SecurityConfig(config);
+        this.config = config;
+        this.manager = clientManager;
     }
 
     private void setOptions(HttpClientBuilder cb) {
@@ -96,7 +100,6 @@ public class ApacheClient extends BaseApacheClient implements Client {
         if (!config.getEnabledCookieManagement()) {
             cb.disableCookieManagement();
         }
-        config.getInterceptor().stream().forEach(cb::addInterceptorFirst);
         if (config.shouldAddShutdownHook()) {
             registerShutdownHook();
         }
@@ -114,25 +117,21 @@ public class ApacheClient extends BaseApacheClient implements Client {
     @Override
     public <T> HttpResponse<T> request(HttpRequest request,
                                        Function<RawResponse, HttpResponse<T>> transformer) {
-
         HttpRequestSummary reqSum = request.toSummary();
-        config.getUniInterceptor().onRequest(request, config);
-        HttpRequestBase requestObj = new RequestPrep(request, config, false).prepare(configFactory);
+        ClassicHttpRequest requestObj = new RequestPrep(request, config, false).prepare();
         MetricContext metric = config.getMetric().begin(reqSum);
-        try {
-            HttpHost host = determineTarget(requestObj, request.getHeaders());
-            org.apache.http.HttpResponse execute = client.execute(host, requestObj);
+
+        HttpHost host = determineTarget(request, request.getHeaders());
+
+        HttpContext context = configFactory.apply(config, request);
+        try(CloseableHttpResponse execute = client.execute(host, requestObj, context)) {
             ApacheResponse t = new ApacheResponse(execute, config);
             metric.complete(t.toSummary(), null);
             HttpResponse<T> httpResponse = transformBody(transformer, t);
-            requestObj.releaseConnection();
-            config.getUniInterceptor().onResponse(httpResponse, reqSum, config);
             return httpResponse;
         } catch (Exception e) {
             metric.complete(null, e);
             return (HttpResponse<T>) config.getUniInterceptor().onFail(e, reqSum, config);
-        } finally {
-            requestObj.releaseConnection();
         }
     }
 
@@ -155,16 +154,16 @@ public class ApacheClient extends BaseApacheClient implements Client {
         );
     }
 
-    public static Builder builder(HttpClient baseClient) {
+    public static Builder builder(CloseableHttpClient baseClient) {
         return new Builder(baseClient);
     }
 
     public static class Builder implements Function<Config, Client> {
 
-        private HttpClient baseClient;
+        private CloseableHttpClient baseClient;
         private RequestConfigFactory configFactory;
 
-        public Builder(HttpClient baseClient) {
+        public Builder(CloseableHttpClient baseClient) {
             this.baseClient = baseClient;
         }
 

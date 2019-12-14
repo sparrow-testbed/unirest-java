@@ -26,14 +26,13 @@
 package kong.unirest.apache;
 
 import kong.unirest.*;
-import org.apache.http.HttpHost;
-import org.apache.http.auth.AuthScope;
-import org.apache.http.auth.UsernamePasswordCredentials;
-import org.apache.http.client.CredentialsProvider;
-import org.apache.http.client.methods.HttpUriRequest;
-import org.apache.http.client.utils.URIUtils;
-import org.apache.http.conn.util.InetAddressUtils;
-import org.apache.http.impl.client.BasicCredentialsProvider;
+import org.apache.hc.client5.http.auth.AuthScope;
+import org.apache.hc.client5.http.auth.CredentialsProvider;
+import org.apache.hc.client5.http.auth.UsernamePasswordCredentials;
+import org.apache.hc.client5.http.impl.auth.BasicCredentialsProvider;
+import org.apache.hc.client5.http.utils.URIUtils;
+import org.apache.hc.core5.http.HttpHost;
+import org.apache.hc.core5.net.InetAddressUtils;
 
 import java.net.InetAddress;
 import java.net.URI;
@@ -47,9 +46,9 @@ abstract class BaseApacheClient {
 
     static CredentialsProvider toApacheCreds(Proxy proxy) {
         if(proxy != null && proxy.isAuthenticated()) {
-            CredentialsProvider proxyCreds = new BasicCredentialsProvider();
+            BasicCredentialsProvider proxyCreds = new BasicCredentialsProvider();
             proxyCreds.setCredentials(new AuthScope(proxy.getHost(), proxy.getPort()),
-                    new UsernamePasswordCredentials(proxy.getUsername(), proxy.getPassword()));
+                    new UsernamePasswordCredentials(proxy.getUsername(), proxy.getPassword().toCharArray()));
             return proxyCreds;
         }
         return null;
@@ -78,10 +77,10 @@ abstract class BaseApacheClient {
     }
 
 
-    protected static HttpHost determineTarget(final HttpUriRequest request, Headers headers)  {
+    protected static HttpHost determineTarget(final HttpRequest request, Headers headers)  {
         HttpHost target = null;
 
-        final URI requestURI = request.getURI();
+        final URI requestURI = URI.create(request.getUrl());
         if (requestURI.isAbsolute()) {
             target = URIUtils.extractHost(requestURI);
             if (target == null) {
@@ -90,7 +89,7 @@ abstract class BaseApacheClient {
             if(headers.containsKey("Host") && InetAddressUtils.isIPv4Address(target.getHostName())){
                 try {
                     InetAddress address = InetAddress.getByName(target.getHostName());
-                    target = new HttpHost(address, headers.getFirst("Host"), target.getPort(), target.getSchemeName());
+                    target = new HttpHost(target.getSchemeName(), address, headers.getFirst("Host"), target.getPort());
                 }catch (UnknownHostException e){
                     throw new UnirestException(e);
                 }

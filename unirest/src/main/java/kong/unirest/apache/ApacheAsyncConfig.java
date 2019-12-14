@@ -27,19 +27,33 @@ package kong.unirest.apache;
 
 import kong.unirest.Config;
 import kong.unirest.UnirestConfigException;
-import org.apache.http.config.Registry;
-import org.apache.http.config.RegistryBuilder;
-import org.apache.http.conn.ssl.NoopHostnameVerifier;
-import org.apache.http.conn.ssl.TrustStrategy;
-import org.apache.http.impl.nio.client.CloseableHttpAsyncClient;
-import org.apache.http.impl.nio.client.HttpAsyncClientBuilder;
-import org.apache.http.impl.nio.conn.PoolingNHttpClientConnectionManager;
-import org.apache.http.impl.nio.reactor.DefaultConnectingIOReactor;
-import org.apache.http.nio.client.HttpAsyncClient;
-import org.apache.http.nio.conn.NoopIOSessionStrategy;
-import org.apache.http.nio.conn.SchemeIOSessionStrategy;
-import org.apache.http.nio.conn.ssl.SSLIOSessionStrategy;
-import org.apache.http.ssl.SSLContextBuilder;
+import org.apache.hc.client5.http.async.HttpAsyncClient;
+import org.apache.hc.client5.http.impl.async.CloseableHttpAsyncClient;
+import org.apache.hc.client5.http.impl.nio.PoolingAsyncClientConnectionManager;
+import org.apache.hc.client5.http.ssl.DefaultClientTlsStrategy;
+import org.apache.hc.core5.http.config.Registry;
+import org.apache.hc.core5.http.config.RegistryBuilder;
+import org.apache.hc.core5.http.nio.ssl.TlsStrategy;
+import org.apache.hc.core5.pool.PoolConcurrencyPolicy;
+import org.apache.hc.core5.pool.PoolReusePolicy;
+import org.apache.hc.core5.reactor.IOReactorStatus;
+import org.apache.hc.client5.http.async.HttpAsyncClient;
+import org.apache.hc.client5.http.async.methods.SimpleHttpRequest;
+import org.apache.hc.client5.http.async.methods.SimpleHttpResponse;
+import org.apache.hc.client5.http.impl.async.CloseableHttpAsyncClient;
+import org.apache.hc.client5.http.impl.async.HttpAsyncClientBuilder;
+import org.apache.hc.client5.http.impl.nio.PoolingAsyncClientConnectionManager;
+import org.apache.hc.client5.http.ssl.DefaultClientTlsStrategy;
+import org.apache.hc.core5.concurrent.FutureCallback;
+import org.apache.hc.core5.http.HttpHost;
+import org.apache.hc.core5.http.config.Registry;
+import org.apache.hc.core5.http.config.RegistryBuilder;
+import org.apache.hc.core5.http.nio.ssl.TlsStrategy;
+import org.apache.hc.core5.http.protocol.HttpContext;
+import org.apache.hc.core5.pool.PoolConcurrencyPolicy;
+import org.apache.hc.core5.pool.PoolReusePolicy;
+import org.apache.hc.core5.reactor.IOReactorStatus;
+import org.apache.hc.core5.util.TimeValue;
 
 import java.util.Objects;
 import java.util.concurrent.TimeUnit;
@@ -48,10 +62,10 @@ import java.util.stream.Stream;
 import static kong.unirest.apache.BaseApacheClient.toApacheCreds;
 
 class ApacheAsyncConfig {
-    final HttpAsyncClient client;
+    final CloseableHttpAsyncClient client;
     final Config config;
     private AsyncIdleConnectionMonitorThread syncMonitor;
-    private PoolingNHttpClientConnectionManager manager;
+    private PoolingAsyncClientConnectionManager manager;
     private boolean hookset;
 
     public ApacheAsyncConfig(Config config) {
@@ -82,9 +96,30 @@ class ApacheAsyncConfig {
         }
     }
 
+    public ApacheAsyncConfig(CloseableHttpAsyncClient client, Config config) {
+        this.client = client;
+        this.config = config;
+    }
+
+    private PoolingAsyncClientConnectionManager createConnectionManager() throws Exception {
+        return new PoolingAsyncClientConnectionManager(createDefault(),
+                PoolConcurrencyPolicy.STRICT,
+                PoolReusePolicy.LIFO,
+                TimeValue.of(config.getTTL(), TimeUnit.MILLISECONDS),
+                null,
+                null
+        );
+    }
+
+    private Registry<TlsStrategy> createDefault() {
+        return RegistryBuilder.<TlsStrategy>create()
+                .register("https", DefaultClientTlsStrategy.getDefault())
+                .build();
+    }
+
     private void setOptions(HttpAsyncClientBuilder ab) {
         if (!config.isVerifySsl()) {
-            disableSsl(ab);
+            // disableSsl(ab);
         }
         if (config.useSystemProperties()) {
             ab.useSystemProperties();
@@ -95,61 +130,8 @@ class ApacheAsyncConfig {
         if (!config.getEnabledCookieManagement()) {
             ab.disableCookieManagement();
         }
-        config.getInterceptor().forEach(ab::addInterceptorFirst);
     }
 
-    private PoolingNHttpClientConnectionManager createConnectionManager() throws Exception {
-        return new PoolingNHttpClientConnectionManager(new DefaultConnectingIOReactor(),
-                null,
-                getRegistry(),
-                null,
-                null,
-                config.getTTL(), TimeUnit.MILLISECONDS);
-    }
-
-    private Registry<SchemeIOSessionStrategy> getRegistry() throws Exception {
-        if (config.isVerifySsl()) {
-            return RegistryBuilder.<SchemeIOSessionStrategy>create()
-                    .register("http", NoopIOSessionStrategy.INSTANCE)
-                    .register("https", SSLIOSessionStrategy.getDefaultStrategy())
-                    .build();
-        } else {
-            return RegistryBuilder.<SchemeIOSessionStrategy>create()
-                    .register("http", NoopIOSessionStrategy.INSTANCE)
-                    .register("https", new SSLIOSessionStrategy(new SSLContextBuilder()
-                            .loadTrustMaterial(null, (x509Certificates, s) -> true)
-                            .build(), NoopHostnameVerifier.INSTANCE))
-                    .build();
-        }
-    }
-
-
-    private void disableSsl(HttpAsyncClientBuilder ab) {
-        try {
-            ab.setSSLHostnameVerifier(NoopHostnameVerifier.INSTANCE);
-            ab.setSSLContext(new SSLContextBuilder().loadTrustMaterial(null, (TrustStrategy) (arg0, arg1) -> true).build());
-        } catch (Exception e) {
-            throw new UnirestConfigException(e);
-        }
-    }
-
-    public ApacheAsyncConfig(HttpAsyncClient client, Config config) {
-        this.client = client;
-        this.config = config;
-    }
-
-    @Deprecated
-    public ApacheAsyncConfig(HttpAsyncClient client,
-                             Config config,
-                             PoolingNHttpClientConnectionManager manager,
-                             AsyncIdleConnectionMonitorThread monitor) {
-        Objects.requireNonNull(client, "Client may not be null");
-
-        this.config = config;
-        this.client = client;
-        this.syncMonitor = monitor;
-        this.manager = manager;
-    }
 
     public void registerShutdownHook() {
         if (!hookset) {
@@ -160,7 +142,7 @@ class ApacheAsyncConfig {
 
     public boolean isRunning() {
         return Util.tryCast(client, CloseableHttpAsyncClient.class)
-                .map(CloseableHttpAsyncClient::isRunning)
+                .map(c -> c.getStatus() == IOReactorStatus.ACTIVE)
                 .orElse(true);
     }
 
@@ -170,11 +152,11 @@ class ApacheAsyncConfig {
 
     public Stream<Exception> close() {
         return Util.collectExceptions(Util.tryCast(client, CloseableHttpAsyncClient.class)
-                        .filter(c -> c.isRunning())
+                        .filter(c -> c.getStatus() == IOReactorStatus.ACTIVE)
                         .map(c -> Util.tryDo(c, d -> d.close()))
                         .filter(c -> c.isPresent())
                         .map(c -> c.get()),
-                Util.tryDo(manager, m -> m.shutdown()),
+                Util.tryDo(manager, m -> m.close()),
                 Util.tryDo(syncMonitor, m -> m.interrupt()));
     }
 }
