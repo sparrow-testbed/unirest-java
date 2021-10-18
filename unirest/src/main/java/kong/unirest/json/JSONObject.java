@@ -90,7 +90,7 @@ public class JSONObject extends JSONElement {
      * @return a quoted string
      */
     public static String quote(String s) {
-        return CoreFactory.getCore().toJson(s);
+        return CoreFactory.getCore().quote(s);
     }
 
     /**
@@ -204,7 +204,7 @@ public class JSONObject extends JSONElement {
         if(o instanceof JSONElement){
             return o.toString();
         }
-        return CoreFactory.getCore().toJson(o);
+        return CoreFactory.getCore().quote(o);
     }
 
     /**
@@ -289,7 +289,8 @@ public class JSONObject extends JSONElement {
      * @throws JSONException if the key does not exist
      */
     public Object get(String key) throws JSONException {
-        return MAPPER.apply(getProperty(key));
+        EngineElement property = getProperty(key);
+        return MAPPER.apply(property);
     }
 
     /**
